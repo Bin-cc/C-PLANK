@@ -36,8 +36,15 @@ $ conda activate plank
 $ pip install -r requirements.txt
 ```
 ## Use C-PLANK
-C-PLANK is a virtual screening tool used for 
-
-
+C-PLANK is a virtual screening tool used for deciphering ligand interactome derived from affinity-based proteome profiling (AfBPP). In current version of C-PLANK, only fully functionalized fragment (FFF) ligands with photoreactive group of diazirine are considered during training. For the other types of photoreactive group, due to the insufficient resource and biased labeling preference, C-PLANK did not leverage them in training process but this model framework could be also expanded to the other photoreactive groups.
+#### Custom Dataset 
+The training dataset utilized by C-PLANK is prepared in ./Dataset/split_dataset.tsv which is generated from Offensperger et al. If you have a real-world case to train and test C-PLANK, the custom dataset is required to include a header row of 'sequence', 'SMILES', and 'label'.
+#### Embedding Generation
+To reduce the loading time, we recommand to prepare the protein and ligand embeddings in advance with following command
+```
+$ python getEmbedding.py --outpath ${path} --data ${dataset}
+```
+The dataset contains the header row of 'ProteinID', 'sequence', 'ligID', and 'SMILES'.
+#### Running demo
 
 
