@@ -56,7 +56,7 @@ With the trained model, you can implement a single enquiry or a large-scale scre
 ## Acknowledgements
 This implementation is inspired and partially based on the prior works from refer [2] and [3]
 ## Reference
-[1] Offensperger, F. et al. Large-scale chemoproteomics expedites ligand discovery and predicts ligand behavior in cells. Science 384, eadk5864 (2024). https://doi.org/doi:10.1126/science.adk5864 \n
-[2] Bai, P., Miljković, F., John, B. & Lu, H. Interpretable bilinear attention network with domain adaptation improves drug–target prediction. Nature Machine Intelligence 5, 126-136 (2023). https://doi.org/10.1038/s42256-022-00605-1 \n
+[1] Offensperger, F. et al. Large-scale chemoproteomics expedites ligand discovery and predicts ligand behavior in cells. Science 384, eadk5864 (2024). https://doi.org/doi:10.1126/science.adk5864 \
+[2] Bai, P., Miljković, F., John, B. & Lu, H. Interpretable bilinear attention network with domain adaptation improves drug–target prediction. Nature Machine Intelligence 5, 126-136 (2023). https://doi.org/10.1038/s42256-022-00605-1 \
 [3] Hadipour, H. et al. GraphBAN: An inductive graph-based approach for enhanced prediction of compound-protein interactions. Nature Communications 16, 2541 (2025). https://doi.org/10.1038/s41467-025-57536-9
 ## Citation
