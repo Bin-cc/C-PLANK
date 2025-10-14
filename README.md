@@ -42,7 +42,7 @@ The training dataset utilized by C-PLANK is prepared in ./Dataset/split_dataset.
 #### Embedding Generation
 To reduce the loading time, we recommand to prepare the protein and ligand embeddings in advance with following command
 ```
-$ python getEmbedding.py --outpath ${path} --data ${dataset}
+$ python getEmbedding.py --outpath ${output path} --datapath ${path to input dataset}
 ```
 The dataset contains the header row of 'ProteinID', 'sequence', 'ligID', and 'SMILES'. If you have not prepared the embedding file, it will be generated during training which would cost much time. 
 #### Run C-PLANK
