@@ -7,7 +7,7 @@
 ## Description
 C-PLANK (Chemi-Proteome Language Attention NetworK) is a deep learning framework that learn from the chemoproteomics datasets of fragment-based ligand-protein interactions in cells, providing interpretable interaction fingerprints of local residues and atoms.
 ## Architecture
-![Architecture of C-PLANK](./image/Architecture of C-PLANK.png)
+![Architecture of C-PLANK](./image/Architecture%20of%20C-PLANK.png)
 ## Setup C-PLANK
 C-PLANK is implemented and tested with Python 3.12, pytorch 2.5 and cuda 12.4 on Linux. However, C-PLANK is also supported for additional standard operating systems such as Windows and macOS to run with following depending packages:
 ```
