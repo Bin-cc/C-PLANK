@@ -227,7 +227,7 @@ class LigEmbedding():
         return [1 if x == num else 0 for num in num_list]
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(description="Embedding generation for C-PLANK")
     parser.add_argument('--outpath', required=True, help="path to output files", type=str)
     parser.add_argument('--datapath', required=True, type=str, help='path to dataset')
@@ -249,3 +249,7 @@ if __name__ == '__main__':
     
     torch.save(prot_dict, os.path.join(args.outpath, 'prot_dict.pt'))
     torch.save(lig_dict, os.path.join(args.outpath, 'lig_dict.pt'))
+
+
+if __name__ == '__main__':
+    main()

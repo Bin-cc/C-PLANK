@@ -1,10 +1,12 @@
 import os
 import pandas as pd
 import torch
-from Training.config import get_cfg_defaults
-from Prediction.Predictor import PairPredictor
-from Training.model import MODEL
+from training.config import get_cfg_defaults
+from inference.Predictor import PairPredictor
+from training.model import CPLANK
 from pyteomics import parser
+import argparse
+import re
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -19,7 +21,7 @@ class screening():
 
         config = get_cfg_defaults()
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        model = MODEL(device, **config).to(device)
+        model = CPLANK(device, **config).to(device)
         self.data_path = path
         model.load_state_dict(torch.load(os.path.join(self.data_path, 'best_model.pth')))
         self.predictor = PairPredictor(model, device, self.data_path)
@@ -73,23 +75,21 @@ class screening():
             os.mkdir(os.path.join(self.data_path, 'screening_result'))
             
         if mode == 'all':
-            out, att_matrix, residue_score, atom_score, diazo_score, alkyne_score, diazo, alkyne, frag_score = self.predictor.single_screen(seq, sml, mode=mode)
-            pd.DataFrame(att_matrix).to_csv(os.path.join(self.data_path, f'screening_result/{prot_name}_{lig_name}_att_matrix.csv'), index=False)
+            out, uncertain, residue_score, atom_score = self.predictor.single_screen(seq, sml, mode=mode)
             pd.DataFrame(residue_score).to_csv(os.path.join(self.data_path, f'screening_result/{prot_name}_{lig_name}_residue_score.csv'), index=False)
             pd.DataFrame(atom_score).to_csv(os.path.join(self.data_path, f'screening_result/{prot_name}_{lig_name}_atom_score.csv'), index=False)
             
         elif mode == 'single':
-            out, diazo_score, alkyne_score, diazo, alkyne, frag_score = self.predictor.single_screen(seq, sml, mode=mode)
+            out, uncertain = self.predictor.single_screen(seq, sml, mode=mode)
         
-        return {'Pair score': out[0][0], 'Diazo score': diazo_score, 'Diazo position': diazo,
-                'Alkyne score': alkyne_score, 'Alkyne position': alkyne, 'Fragment score': frag_score}
+        return {'Probability': out, 'Uncertain': uncertain}
 
     
     def custom_screen(self, dataset, prot_path=None, batch_size=32, mode='all', project='job'):
         
         if mode == 'all':
-            out, residue_score, atom_score, diazo_score, alkyne_score, diazo, alkyne, frag_score = self.predictor.batch_screen(dataset, prot_path=prot_path, project=project,
-                                                                                                                          batch_size=batch_size, mode=mode)
+            out, residue_score, atom_score = self.predictor.batch_screen(dataset, prot_path=prot_path, project=project,
+                                                                         batch_size=batch_size, mode=mode)
             residue_score = pd.DataFrame(residue_score)
             residue_score = pd.concat([out[['Ligand','ProteinID']], residue_score], axis=1)
             residue_score.to_csv(os.path.join(self.data_path, f'screening_result/{project}/residue_score.csv'), index=False)
@@ -98,15 +98,44 @@ class screening():
             atom_score.to_csv(os.path.join(self.data_path, f'screening_result/{project}/atom_score.csv'), index=False)
         
         elif mode == 'single':
-            out, diazo_score, alkyne_score, diazo, alkyne, frag_score = self.predictor.batch_screen(dataset, prot_path=prot_path, project=project,
-                                                                                                    batch_size=batch_size, mode=mode)
-        result = {}
-        
-        for i in out.index:
-            prot_name, lig_name = out.loc[i,'ProteinID'], out.loc[i,'Ligand']
-            r = {'Pair score': out.loc[i,'Probability'], 'Diazo score': diazo_score[i], 'Diazo position': diazo[i],
-                  'Alkyne score': alkyne_score[i], 'Alkyne position': alkyne[i], 'Fragment score': frag_score[i]}
-            result.setdefault((lig_name, prot_name), r)
-        
-        return out, result
+            out = self.predictor.batch_screen(dataset, prot_path=prot_path, project=project, 
+                                              batch_size=batch_size, mode=mode)
+
+        return out
+
+
+def read_files(dataset_path):
+    if dataset_path.endswith('.csv'):
+        dataset = pd.read_csv(dataset_path)
+    elif dataset_path.endswith('.tsv'):
+        dataset = pd.read_csv(dataset_path, sep='\t')
+    elif dataset_path.endswith('.xlsx'):
+        dataset = pd.read_excel(dataset_path)
+    
+    return dataset
+
+
+def process():
+    parser = argparse.ArgumentParser(description="Inference of ligand-protein interaction propensity")
+    parser.add_argument("--dataset-path", type=str, required=True, help="Path to information of candidate ligands and proteins.")
+    parser.add_argument("--embed-path", type=str, required=True, help="Path to information of candidate ligands and proteins.")
+    parser.add_argument("--mode", type=str, default='single', help="Output information.")
+    parser.add_argument("--project", type=str, default='job', help="Project name.")
+    parser.add_argument("--show", type=bool, default=True, help="Whether display the final result.")
+    args = parser.parse_args()
+    
+    dataset = read_files(args.dataset_path)
+    
+    sc = screening(args.embed_path)
+    out = sc.custom_screen(dataset, mode=args.mode, project=args.project)
+    
+    if args.show:
+        print(out)
+    
+    out.to_csv(os.path.join(args.dataset_path, f'screening_result/{args.project}/result.csv'), index=False)
+
+    
+
+if __name__ == "__main__":
+    process()
 

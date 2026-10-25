@@ -6,9 +6,10 @@ from torch.utils.data import DataLoader
 import pandas as pd
 import numpy as np
 from Prepreparing.getEmbedding import ProtEmbedding, LigEmbedding
-from Training.config import get_cfg_defaults
-from Training.LoadData import CustomDatasetScreen
+from training.config import get_cfg_defaults
+from training.LoadData import CustomDatasetScreen
 from tqdm import tqdm
+from multiprocessing import Pool
 
 
 class PairPredictor():
@@ -67,11 +68,8 @@ class PairPredictor():
         lig_feat = lig_feat.to(self.device)
         prot_mask = prot_mask.to(self.device)
         lig_mask = lig_mask.to(self.device)
-        diazo = lig_infor[lig_name]['diazo_pos']
-        alkyne = lig_infor[lig_name]['alkyne_pos']
         
-        prot_repr = prot_repr.unsqueeze(0)
-        prot_repr = prot_repr.float()
+        prot_repr = prot_repr.unsqueeze(0).float()
         prot_feat = prot_feat.unsqueeze(0)
         prot_mask = prot_mask.unsqueeze(0)
         lig_repr = lig_repr.unsqueeze(0)
@@ -87,26 +85,20 @@ class PairPredictor():
                                                                 lig_repr, lig_feat, lig_mask
                                                                 )
             
-            diazo_score = atom_score[:, list(diazo[0])].mean()
-            alkyne_score = atom_score[:, list(alkyne[0])].mean()
-            
-            frag_mask = torch.ones(atom_score.size(1), dtype=torch.bool)
-            frag_mask[list(diazo[0])+list(alkyne[0])] = False
-            frag_score = atom_score[:, frag_mask].sum()/(lig_len-len(diazo[0])-len(alkyne[0]))
-            
-            score = self.scale(out).detach().cpu().numpy()
-            diazo_score = diazo_score.detach().cpu().numpy()
-            alkyne_score = alkyne_score.detach().cpu().numpy()
-            frag_score = frag_score.detach().cpu().numpy()
             att_matrix = torch.mean(att_matrix, 1).squeeze(0).detach().cpu().numpy()
             residue_score = residue_score.detach().cpu().numpy()
             atom_score = atom_score.detach().cpu().numpy()
             
+            S = torch.sum(out, dim=-1, keepdim=True)
+            p = out / S
+            prob = p[:,1]
+            S_flat = S.squeeze(-1)
+            u = 2.0 / S_flat
             
             if mode == 'single':
-                return score, diazo_score, alkyne_score, list(diazo[0]), list(alkyne[0]), frag_score
+                return prob, u
             elif mode == 'all':
-                return score, att_matrix, residue_score, atom_score, diazo_score, alkyne_score, list(diazo[0]), list(alkyne[0]), frag_score
+                return prob, u, residue_score, atom_score
     
 
     def batch_screen(self, dataset, prot_path=None, batch_size=32, mode='single', project='job'):
@@ -125,21 +117,20 @@ class PairPredictor():
         if mode == 'all':
             os.mkdir(os.path.join(self.data_path, f'screening_result/{project}/Attention matrixs'))
         
-        out_lt, diazo_score, alkyne_score, frag_score = np.array([]), np.array([]), np.array([]), np.array([])
+        out_lt, c_lt = np.array([]), np.array([])
         details = False
         count = 0
         print("Screening dataset:")
         self.model.eval()
         with torch.no_grad():
-            for prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, diazo, alkyne in tqdm(dataset):
+            for prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask in tqdm(dataset):
                 prot_repr = prot_repr.to(self.device)
                 prot_feat = prot_feat.to(self.device)
                 lig_repr = lig_repr.to(self.device)
                 lig_feat = lig_feat.to(self.device)
                 prot_mask = prot_mask.to(self.device)
                 lig_mask = lig_mask.to(self.device)
-                diazo = diazo.to(self.device)
-                alkyne = alkyne.to(self.device)
+
                 
                 prot_repr = prot_repr.float()
                 out, att_matrix, residue_score, atom_score = self.model(
@@ -151,67 +142,63 @@ class PairPredictor():
                 
                 att_matrix = torch.mean(att_matrix, 1)
                 for i in range(atom_score.size(0)):
-                    d_score = atom_score[i, diazo[i]].mean()
-                    a_score = atom_score[i, alkyne[i]].mean()
-                    frag_mask = torch.ones(atom_score.size(1), dtype=torch.bool)
-                    frag_mask[torch.cat((diazo[i], alkyne[i]), dim=0)] = False
-                    f_score = atom_score[i, frag_mask].sum()/(lig_mask[i].sum()-len(diazo[i])-len(alkyne[i]))
-                    diazo_score = np.append(diazo_score, d_score.detach().cpu().numpy())
-                    alkyne_score = np.append(alkyne_score, a_score.detach().cpu().numpy())
-                    frag_score = np.append(frag_score, f_score.detach().cpu().numpy())
-                    
                     if mode == 'all':
                         prot_name, lig_name = out_set.loc[count+i,'ProteinID'], out_set.loc[count+i,'Ligand']
                         att = att_matrix[i, :, :].squeeze(0).detach().cpu().numpy()
                         pd.DataFrame(att).to_csv(os.path.join(self.data_path, f'screening_result/{project}/Attention matrixs/{prot_name}_{lig_name}_att_matrix.csv'), index=False)
                 count += batch_size
                 
-                score = self.scale(out).detach().cpu().numpy()
+                S = torch.sum(out, dim=-1, keepdim=True)
+                p = out / S
+                prob = p[:,1]
+                S_flat = S.squeeze(-1)
+                u = 2.0 / S_flat
                 
                 if not details:
                     residue_scores = residue_score.clone()
                     atom_scores = atom_score.clone()
-                    diazo_pos = diazo.clone()
-                    alkyne_pos = alkyne.clone()
                     details = True
                 else:
                     residue_scores = torch.cat((residue_scores, residue_score), dim=0)
                     atom_scores = torch.cat((atom_scores, atom_score), dim=0)
-                    diazo_pos = torch.cat((diazo_pos, diazo), dim=0)
-                    alkyne_pos = torch.cat((alkyne_pos, alkyne), dim=0)
                 
-                out_lt = np.append(out_lt, score)
+                out_lt = np.append(out_lt, prob.cpu().tolist())
+                c_lt = np.append(c_lt, u.cpu().tolist())
             
             residue_scores = residue_scores.detach().cpu().numpy()
             atom_scores = atom_scores.detach().cpu().numpy()
-            diazo_pos = diazo_pos.detach().cpu().numpy()
-            alkyne_pos = alkyne_pos.detach().cpu().numpy()
             
             out_set['Probability'] = out_lt
+            out_set['Uncertainty'] = c_lt
+
             
             if mode == 'single':
-                return out_set, diazo_score, alkyne_score, diazo_pos, alkyne_pos, frag_score
+                return out_set
             elif mode == 'all':
-                return out_set, residue_scores, atom_scores, diazo_score, alkyne_score, diazo_pos, alkyne_pos, frag_score
+                return out_set, residue_scores, atom_scores
+
 
     def ParseData(self, unique_prot, unique_lig):
         prot_dict, lig_dict = {}, {}
-        
-        print("Loading protein information")
-        for protId, seq in tqdm(unique_prot[['ProteinID','Sequence']].values):
-            result = self.pe.prot2embed((protId, seq))
-            prot_dict.update(result)
-        
-        print("Loading ligand information")
-        for ligId, sml in tqdm(unique_prot[['Ligand','SMILES']].values):
-            result = self.le.lig2embed((ligId, sml))
-            lig_dict.update(result)
-        
+        with Pool(4) as p:
+            print("Loading protein information")
+            if len(unique_prot) >= 1:
+                print("Considering the device memory, protein information will be read one by one  rather than a package")
+                prot_dict = None
+            else:
+                results = p.map(self.pe.prot2embed,tqdm(unique_prot[['ProteinID','Sequence']].values))
+                for result in results:
+                    prot_dict.update(result)
+            print("Loading ligand information")
+            results = p.map(self.le.lig2embed,tqdm(unique_lig[['Ligand','SMILES']].values))
+            for result in results:
+                lig_dict.update(result)
+    
         return prot_dict, lig_dict
     
     @staticmethod
     def collate_fn(batch):
-        prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, diazo_pos, alkyne_pos = zip(*batch)
+        prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask = zip(*batch)
 
         prot_repr = torch.stack(prot_repr)
         prot_feat = torch.stack(prot_feat)
@@ -219,9 +206,7 @@ class PairPredictor():
         lig_feat = torch.stack(lig_feat)
         prot_mask = torch.stack(prot_mask)
         lig_mask = torch.stack(lig_mask)
-        diazo = torch.stack(diazo_pos)
-        alkyne = torch.stack(alkyne_pos)
-        
-        return prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, diazo, alkyne
+
+        return prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask
 
 

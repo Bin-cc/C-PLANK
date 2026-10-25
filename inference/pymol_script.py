@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sun Jun 15 22:25:44 2025
-
-@author: 18811
-"""
-
 import csv
 import os
 

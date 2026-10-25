@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.nn.utils.weight_norm import weight_norm
 import torch.nn.functional as F
+import math
 
 
 class CPLANK(nn.Module):
@@ -71,8 +72,9 @@ class CPLANK(nn.Module):
         out_channel = h_dim
         self.global_enc = nn.Linear(out_channel, out_channel)
         self.predict = MLPBlock(dims=[out_channel*2]+dec_dim,
-                                dropout_p=dropout_p, act='LeakyReLU', binary=True)
-        
+                                dropout_p=0, act='SELU', binary=True)
+    
+    
     def forward(self, 
                 #Protein features
                 prot_repr, prot_feats, prot_mask,
@@ -119,6 +121,7 @@ class CPLANK(nn.Module):
         global_att = F.leaky_relu(self.global_enc(pair))
         pair = torch.cat([global_att, logits], dim=1)
         out = self.predict(pair)
+        out = nn.functional.softplus(out) + 1
         
         return out, att_matrix, residue_score, atom_score
 
@@ -131,12 +134,31 @@ class MLPBlock(nn.Module):
         
         self.mlp = nn.ModuleList()
         for i in range(len(dims)-1):
-            self.mlp.append(nn.Linear(dims[i], dims[i+1], bias=bias))
+            ln = nn.Linear(dims[i], dims[i+1], bias=bias)
+            if w_norm:
+                ln = weight_norm(ln)
+            self.mlp.append(ln)
         
-        self.act = getattr(nn, act)()
-        self.out = nn.Linear(dims[-1], 1)
+        
+        if binary:
+            self.out = nn.Linear(dims[-1], 2)
+        else:
+            self.out = nn.Linear(dims[-1], 1)
         self.Nlayers = len(self.mlp)
-        self.dropout = nn.Dropout(p=dropout_p)
+        if dropout_p > 0 and act == "SELU":
+            self.dropout = nn.AlphaDropout(p=dropout_p)
+        else:
+            self.dropout = nn.Dropout(p=dropout_p)
+            
+        if act == "SELU":
+            self.act = nn.SELU()
+            self._lecun_weight_init()
+            for layer in self.mlp:
+                layer._is_selu = True
+            self.out._is_selu = True
+        else:
+            self.act = getattr(nn, act)()
+        
         self.norm_layer = nn.LayerNorm(dims[-1])
         self.w_norm = w_norm
         self.l_norm = l_norm
@@ -144,15 +166,20 @@ class MLPBlock(nn.Module):
         self.masked = masked
         self.dropout_p = dropout_p
         self.binary = binary
-        
+    
+    def _lecun_weight_init(self):
+        for layer in self.mlp:
+            fan_in = layer.weight.size(1)
+            std = math.sqrt(1.0 / fan_in)
+            nn.init.normal_(layer.weight, mean=0.0, std=std)
+            if layer.bias is not None:
+                nn.init.zeros_(layer.bias)
+    
     def forward(self, X, mask=None):
         for idx in range(self.Nlayers):
             if self.dropout_p>0:
                 X = self.dropout(X)
-            if self.w_norm:
-                X = weight_norm(self.mlp[idx](X))
-            else:
-                X = self.mlp[idx](X)
+            X = self.mlp[idx](X)
             if self.bias and self.masked:
                 X = X*mask.unsqueeze(-1)
             
@@ -166,6 +193,7 @@ class MLPBlock(nn.Module):
             return self.out(X)
         else:    
             return X
+
 
 class CNNBlock(nn.Module):
     
@@ -277,6 +305,7 @@ class FCNet(nn.Module):
 
     def forward(self, x):
         return self.main(x)
+
 
 class PosLinear(nn.Module):
     """

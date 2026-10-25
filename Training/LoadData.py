@@ -2,7 +2,7 @@ import os
 import torch
 from torch.utils.data import Dataset
 import torch.nn.functional as F
-from Training.config import get_cfg_defaults
+from config import get_cfg_defaults
 
 
 class CustomDataset(Dataset):
@@ -12,6 +12,7 @@ class CustomDataset(Dataset):
         self.prot_dict = prot_dict
         self.lig_dict = lig_dict
         self.config = get_cfg_defaults()
+        self.rank2label = {'Low':0, 'Middle':1, 'High':2}
         
     def __len__(self):
         return len(self.data)
@@ -20,6 +21,7 @@ class CustomDataset(Dataset):
         prot = self.data.loc[idx,'ProteinID']
         lig = self.data.loc[idx,'ligID']
         label = self.data.loc[idx,'label']
+        rank_label = self.data.loc[idx,'rank_label']
         
         max_prot = self.config['Utils']['MaxProt']
         max_lig = self.config['Utils']['MaxLig']
@@ -47,12 +49,12 @@ class CustomDataset(Dataset):
         prot_mask = (prot_repr.abs().sum(dim=1) != 0).long()
         lig_mask = (lig_feat.abs().sum(dim=1) != 0).long()
         
-        diazo_pos = torch.tensor(lig_infor['diazo_pos'][0])
-        alkyne_pos = torch.tensor(lig_infor['alkyne_pos'][0])
         ## Y output
-        label = torch.tensor(label).long()
+        label = torch.tensor(int(label)).long()
+        ## Rank label output
+        rank_label = torch.tensor(self.rank2label[rank_label]).long()
         
-        return prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, diazo_pos, alkyne_pos, label
+        return prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, label, rank_label
 
 
 class CustomDatasetScreen(Dataset):
@@ -100,10 +102,5 @@ class CustomDatasetScreen(Dataset):
         prot_mask = (prot_repr.abs().sum(dim=1) != 0).long()
         lig_mask = (lig_feat.abs().sum(dim=1) != 0).long()
         
-        diazo_pos = torch.tensor(lig_infor['diazo_pos'][0])
-        alkyne_pos = torch.tensor(lig_infor['alkyne_pos'][0])
-        
-        return prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, diazo_pos, alkyne_pos
-
-
+        return prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask
 

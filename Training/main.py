@@ -1,11 +1,11 @@
 import os
 import pandas as pd
-from Training.LoadData import CustomDataset
+from training.LoadData import CustomDataset
 import torch
-from Training.config import get_cfg_defaults
-from Training.Trainer import Trainer
+from training.config import get_cfg_defaults
+from training.Trainer import Trainer
 from torch.utils.data import DataLoader
-from Training.model import MODEL
+from training.model import CPLANK
 from sklearn.model_selection import train_test_split
 import argparse
 import warnings
@@ -13,6 +13,7 @@ warnings.filterwarnings('ignore')
 
 
 def DataSplit(dataset, prot_dict, lig_dict, batch_size=16, random_state=42):
+    
     tv_index, test_index = train_test_split(list(dataset.index), test_size=0.1, random_state=random_state,
                                             shuffle=True, stratify=dataset.label)
     tv_set, test_set = dataset.iloc[tv_index,:], dataset.iloc[test_index,:]
@@ -27,7 +28,7 @@ def DataSplit(dataset, prot_dict, lig_dict, batch_size=16, random_state=42):
     test_set = CustomDataset(test_set, prot_dict, lig_dict)
     train_set = DataLoader(train_set, shuffle=True, batch_size=batch_size, drop_last=True, 
                            collate_fn=collate_fn)
-    val_set = DataLoader(val_set, shuffle=True, batch_size=batch_size, drop_last=False, 
+    val_set = DataLoader(val_set, shuffle=True, batch_size=batch_size, drop_last=True, 
                          collate_fn=collate_fn)
     test_set = DataLoader(test_set, shuffle=True, batch_size=batch_size, drop_last=False, 
                           collate_fn=collate_fn)
@@ -63,7 +64,7 @@ def DataColdSplit(dataset, entity_col, prot_dict, lig_dict, batch_size=16, rando
 
 
 def collate_fn(batch):
-    prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, diazo_pos, alkyne_pos, label = zip(*batch)
+    prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, label, rank_label = zip(*batch)
 
     prot_repr = torch.stack(prot_repr)
     prot_feat = torch.stack(prot_feat)
@@ -71,19 +72,13 @@ def collate_fn(batch):
     lig_feat = torch.stack(lig_feat)
     prot_mask = torch.stack(prot_mask)
     lig_mask = torch.stack(lig_mask)
-    diazo = torch.stack(diazo_pos)
-    alkyne = torch.stack(alkyne_pos)
-    
     label = torch.stack(label)
+    rank_label = torch.stack(rank_label)
     
-    return prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, diazo, alkyne, label
+    return prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, label, rank_label
 
 
-def filter_residue(seq, res=['U','O','X','B','Z','J']):
-    return any(r in seq for r in res) == False
-    
-
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(description="Training C-PLANK")
     parser.add_argument('--filepath', required=True, help="path to necessary files", type=str)
     parser.add_argument('--seed', default=42, required=True, type=int, help='Seed for data splitting')
@@ -95,11 +90,9 @@ if __name__ == '__main__':
     seed = args.seed
     split_mode = args.split
     
+    # Loading data
     dataset = pd.read_csv(os.path.join(data_path, 'split_dataset.tsv'), sep='\t')
-    
-    #Load protein graphs
     prot_dict = torch.load(os.path.join(data_path, 'prot_dict.pt'))
-    #Load ligand graphs
     lig_dict = torch.load(os.path.join(data_path, 'lig_dict.pt'))
     
     if split_mode == 'random':
@@ -109,24 +102,27 @@ if __name__ == '__main__':
         train_set, val_set, test_set = DataColdSplit(dataset, 'ProteinID', prot_dict, lig_dict,
                                                      batch_size=64, random_state=seed)
     
-
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     config = get_cfg_defaults()
-
-    model = MODEL(device, **config).to(device)
+    
+    cplank = CPLANK(device, **config).to(device)
     
     trainer = Trainer(
-                model, epochs=100, optimizer='AdamW', criterion='BCEWithLogitsLoss',
+                cplank, epochs=50, optimizer='AdamW', criterion=None,
                 scheduler='CosineAnnealingLR', device=device, model_path=data_path,
                 save_model=True, earlyStop=False, save_path=data_path, lr=config['Optim']['lr'],
                 weight_decay=config['Optim']['Wdecay'], score_thre=0.5, evl_name='auc_score'
                       )
-
+    
     metrics_dict = trainer.model_train(train_set, val_set)
     metrics_dict.to_csv(os.path.join(data_path, 'metrics_output.csv'),index=False)
-      
-    out_lt, label_lt = trainer.model_test(test_set, model_name='best_model.pth')
+    
+    out_lt, label_lt, c_lt = trainer.model_test(test_set, model_name='best_model.pth')
     y_pred = (out_lt >= 0.5).astype(int)
     
     test_metrics = trainer.metrics_calculation(y_true=label_lt, y_pred=y_pred, y_prob=out_lt, out_format='frame')     
     test_metrics.to_csv(os.path.join(data_path, 'test_output.csv'),index=False)
+    
+    
+if __name__ == '__main__':
+    main()

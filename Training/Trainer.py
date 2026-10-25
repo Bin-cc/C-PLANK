@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 from prefetch_generator import BackgroundGenerator
-from Training.EarlyStopping import EarlyStopping
+from EarlyStopping import EarlyStopping
+from dirichlet_loss import DirichletLossWithAnneal
 import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score,precision_score,recall_score,f1_score,accuracy_score,matthews_corrcoef,average_precision_score,auc,precision_recall_curve
@@ -14,7 +15,8 @@ class Trainer():
     
     def __init__(self, model, epochs, optimizer, criterion, scheduler, device, 
                  save_model=False, model_path=None, earlyStop=False, save_path=None, 
-                 lr=1e-4, weight_decay=1e-2, score_thre=0.5, evl_name='auc_score'):
+                 lr=1e-4, weight_decay=1e-2, score_thre=0.5, evl_name='auc_score',
+                 evl_dataset=None, pre_dataset=None, seed=1):
         
         self.model = model
         self.device = device
@@ -28,22 +30,37 @@ class Trainer():
             self.early_stopping = EarlyStopping(save_path)
         self.evl_name = evl_name
         
-        self.criterion = getattr(nn, criterion)()
-        self.optimizer = getattr(torch.optim, optimizer)(model.parameters(), lr=lr,
+        if criterion:
+            self.criterion = getattr(nn, criterion)()
+        else:
+            self.criterion = DirichletLossWithAnneal(lam_target=0.1,
+                                                lambda_rank_target=0.3,
+                                                grade_weights=[0.9, 1.0, 1.1],
+                                                lam_warmup_epochs=10,
+                                                rank_warmup_epochs=10,
+                                                pos_reg_weight=0.01,
+                                                margin = 0.02
+                                                )
+        trainable_params = filter(lambda p: p.requires_grad, model.parameters())
+        self.optimizer = getattr(torch.optim, optimizer)(trainable_params, lr=lr,
                                                          weight_decay=weight_decay)
         self.scheduler = getattr(torch.optim.lr_scheduler, scheduler)(self.optimizer, 
                                                                       T_max=epochs,
                                                                       eta_min=lr/100)
         
-        self.scale = nn.Sigmoid()
         self.metrics_dict = {'train_loss':[], 'val_loss':[], 
                              'acc':[], 'precision':[], 'recall':[], 'f1':[],
                              'ap':[], 'mcc':[], 'auc_score':[], 'prc_score':[]}
-        
+       
+        self.evl_dataset = evl_dataset
+        self.pre_dataset = pre_dataset
+        self.seed = seed
+    
     
     def model_train(self, train_set, val_set):
 
         for epoch in range(self.epochs):
+            self.criterion.step(epoch)
             self.model.train()
             trian_pbar = BackgroundGenerator(train_set)
             train_loss = self.train_epoch(trian_pbar)
@@ -55,7 +72,6 @@ class Trainer():
                                        [train_loss]):
                 v = self.metrics_dict[loss_name]
                 v.append(loss)
-                
                 self.metrics_dict.update({loss_name : v})
             
             metric_str = ''
@@ -89,12 +105,12 @@ class Trainer():
             print(metric_str)
             
         return pd.DataFrame(self.metrics_dict, columns=list(self.metrics_dict.keys()))
-
+    
 
     def train_epoch(self, trian_pbar):
         train_loss = 0
 
-        for prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, diazo, alkyne, label in tqdm(trian_pbar):
+        for prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, label, rank_label  in tqdm(trian_pbar):
 
             prot_repr = prot_repr.to(self.device)
             prot_feat = prot_feat.to(self.device)
@@ -102,9 +118,8 @@ class Trainer():
             lig_feat = lig_feat.to(self.device)
             prot_mask = prot_mask.to(self.device)
             lig_mask = lig_mask.to(self.device)
-            diazo = diazo.to(self.device)
-            alkyne = alkyne.to(self.device)
             label = label.to(self.device)
+            rank_label = rank_label.to(self.device)
             
             prot_repr = prot_repr.float()
             self.optimizer.zero_grad()
@@ -116,7 +131,7 @@ class Trainer():
                                     lig_repr, lig_feat, lig_mask
                                     )
             
-            loss = self.criterion(out.squeeze(), label.float())
+            loss = self.criterion(out.squeeze(), label, rank_label)
             train_loss += loss.item()
             
             loss.backward()
@@ -132,7 +147,7 @@ class Trainer():
         val_bar = BackgroundGenerator(val_set)
         
         with torch.no_grad():
-            for prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, diazo, alkyne, label in val_bar:
+            for prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, label, rank_label in val_bar:
 
                 prot_repr = prot_repr.to(self.device)
                 prot_feat = prot_feat.to(self.device)
@@ -140,9 +155,8 @@ class Trainer():
                 lig_feat = lig_feat.to(self.device)
                 prot_mask = prot_mask.to(self.device)
                 lig_mask = lig_mask.to(self.device)
-                diazo = diazo.to(self.device)
-                alkyne = alkyne.to(self.device)
                 label = label.to(self.device)
+                rank_label = rank_label.to(self.device)
                 
                 prot_repr = prot_repr.float()
                 
@@ -154,10 +168,12 @@ class Trainer():
                                     )
                 
                 score = out.squeeze()
-                loss = self.criterion(score.squeeze(), label.float())
+                loss = self.criterion(score.squeeze(), label, rank_label)
                 val_loss += loss.item()
                 
-                prob = self.scale(score)
+                S = torch.sum(out, dim=-1, keepdim=True)
+                p = out / S
+                prob = p[:,1]
                 pred = (prob >= self.score_thre).int()
                 y_true.extend(label.tolist())
                 y_pred.extend(pred.tolist())
@@ -207,18 +223,17 @@ class Trainer():
         self.model.load_state_dict(torch.load(os.path.join(self.model_path, model_name)))
         self.model.eval()
         
-        out_lt, label_lt = np.array([]), np.array([])
+        out_lt, label_lt, c_lt = np.array([]), np.array([]), np.array([])
 
-        for prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, diazo, alkyne, label in test_set:
+        for prot_repr, prot_feat, lig_repr, lig_feat, prot_mask, lig_mask, label, rank_label in tqdm(test_set):
             prot_repr = prot_repr.to(self.device)
             prot_feat = prot_feat.to(self.device)
             lig_repr = lig_repr.to(self.device)
             lig_feat = lig_feat.to(self.device)
             prot_mask = prot_mask.to(self.device)
             lig_mask = lig_mask.to(self.device)
-            diazo = diazo.to(self.device)
-            alkyne = alkyne.to(self.device)
             label = label.to(self.device)
+            rank_label = rank_label.to(self.device)
             
             prot_repr = prot_repr.float()
             
@@ -229,11 +244,16 @@ class Trainer():
                                     lig_repr, lig_feat, lig_mask,
                                     )
             
-            prob = self.scale(out).tolist()
-            out_lt = np.append(out_lt, prob)
+            S = torch.sum(out, dim=-1, keepdim=True)
+            p = out / S
+            prob = p[:,1]
+            S_flat = S.squeeze(-1)
+            u = 2.0 / S_flat
+            out_lt = np.append(out_lt, prob.cpu().tolist())
+            c_lt = np.append(c_lt, u.cpu().tolist())
             label_lt = np.append(label_lt, label.tolist())
             
-        return out_lt, label_lt
+        return out_lt, label_lt, c_lt
     
     
     
