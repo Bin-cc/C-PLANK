@@ -21,8 +21,7 @@ class ProtEmbedding():
     def __init__(self):
         self.model, self.alphabet = esm.pretrained.esm2_t33_650M_UR50D()
         self.batch_converter = self.alphabet.get_batch_converter()
-        source_path=r"D:\All_for_paper\1. PhD Work Program\3. Research project\2. Ligand Discovery\public data source\Structural information"
-        self.feat = pd.read_excel(os.path.join(source_path, 'physicochemical features.xlsx'))
+        self.feat = pd.read_excel(r'Data/physicochemical features.xlsx')
         self.feat_descriptor = {}
         for i in self.feat.index:
             self.feat_descriptor.setdefault(self.feat.loc[i,'Residue'],tuple((self.feat.iloc[i,1:].values.astype(np.float64))))
