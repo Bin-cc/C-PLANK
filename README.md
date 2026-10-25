@@ -45,12 +45,14 @@ To reduce the loading time, we recommand to prepare the protein and ligand embed
 python Prepreparing/getEmbedding.py --outpath ${output path} --datapath ${path to input dataset}
 ```
 The dataset contains the header row of 'ProteinID', 'sequence', 'ligID', and 'SMILES'. If you have not prepared the embedding file, it will be generated during training which would cost much time. 
-#### Run C-PLANK
+#### Training
 We provide a set of hyperparameters in config.py for running the model and reproducing our result. To train C-PLANK, you can simply run the following command
 ```
-python Training/main.py --filepath ${path} --seed 42
+python training/main.py --filepath ${path} --split random --seed 42
 ```
 The file path is the path toward custom dataset and files of protein/ligand embeddings.
+#### Inference
+
 #### Interpretation Prediction
 With the trained model, you can implement a single enquiry or a large-scale screening of ligand-protein interactions with visualized interpretation (optional). The details can be checked in ./Prediction/screening.ipynb.
 ## Acknowledgements
