@@ -38,7 +38,9 @@ $ pip install -r requirements.txt
 ## Use C-PLANK
 C-PLANK is a virtual screening tool used for deciphering ligand interactome derived from affinity-based proteome profiling (AfBPP). In current version of C-PLANK, only fully functionalized fragment (FFF) ligands with photoreactive group of diazirine are considered during training. For the other types of photoreactive group, due to the insufficient resource and biased labeling preference, C-PLANK did not leverage them in training process but this model framework could be also expanded to the other photoreactive groups.
 #### Custom Dataset 
-The training dataset utilized by C-PLANK is prepared in ./Dataset/split_dataset.tsv which is generated from Offensperger et al [1]. If you have a real-world case to train and test C-PLANK, the custom dataset is required to include a header row of 'sequence', 'SMILES', and 'label'.
+The training dataset utilized by C-PLANK is prepared in ./Data/split_dataset.tsv which is generated from Offensperger et al [1]. If you have a real-world case to train and test C-PLANK, the custom dataset is required to include header rows of as follows
+<img width="30%" alt="image" src="https://github.com/user-attachments/assets/97509ecd-8cd8-4f57-92e9-2ae220865b4d" />
+
 #### Embedding Generation
 To reduce the loading time, we recommand to prepare the protein and ligand embeddings in advance with following command
 ```
@@ -52,9 +54,13 @@ python training/main.py --filepath ${path} --split random --seed 42
 ```
 The file path is the path toward custom dataset and files of protein/ligand embeddings.
 #### Inference
-
+In inference processing, we provide two ways to infer ligand-protein interaction propensity: given_pair_screen and custom_screen. Following command shows the custom_screen mode which requires dataset preparation as described in session Embedding Generation.
+```
+python inference/screening.py --dataset-path ${dataset path} --embed-path ${embedding path} --mode single
+```
+The details of given_pair_screen mode can be found in demo.ipynb which also includes an example for elucidating C-PLANK interpretation.
 #### Interpretation Prediction
-With the trained model, you can implement a single enquiry or a large-scale screening of ligand-protein interactions with visualized interpretation (optional). The details can be checked in ./Prediction/screening.ipynb.
+With the trained model, you can implement a single enquiry or a large-scale screening of ligand-protein interactions with visualized interpretation (optional). The details can be checked in ./inference/screening.ipynb.
 ## Acknowledgements
 This implementation is inspired and partially based on the prior works from refer [2] and [3]
 ## Reference
@@ -62,3 +68,4 @@ This implementation is inspired and partially based on the prior works from refe
 [2] Bai, P., Miljković, F., John, B. & Lu, H. Interpretable bilinear attention network with domain adaptation improves drug–target prediction. Nature Machine Intelligence 5, 126-136 (2023). https://doi.org/10.1038/s42256-022-00605-1 \
 [3] Hadipour, H. et al. GraphBAN: An inductive graph-based approach for enhanced prediction of compound-protein interactions. Nature Communications 16, 2541 (2025). https://doi.org/10.1038/s41467-025-57536-9
 ## Citation
+Liao, B.; He, J.; Zhao, M.; Cui, X.; Cui, Y.; Dong, C.; Sun, H.; Zhang, L.; Zhang, J. Chemi-Proteome Language Attention Network Empowers Fragment-Based Ligand Interactome and Binding Sites Discovery with Evidence. bioRxiv 2026, 2026.2008.2026.747036. DOI: 10.64898/2026.08.26.747036.
