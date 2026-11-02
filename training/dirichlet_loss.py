@@ -86,6 +86,8 @@ class DirichletLossWithAnneal(nn.Module):
         
         S_flat = S.squeeze(-1)
         u = self.num_classes / S_flat
+        hm_loss = torch.tensor(0.0, device=u.device)
+        ml_loss = torch.tensor(0.0, device=u.device)
         
         if self.current_lambda_rank > 1e-8:
             high_mask = (grade_labels == 2)
