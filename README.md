@@ -40,9 +40,9 @@ C-PLANK is a virtual screening tool used for deciphering ligand interactome deri
 #### Custom Dataset 
 The training dataset utilized by C-PLANK is prepared in ./Data/split_dataset.tsv which is generated from Offensperger et al [1]. If you have a real-world case to train and test C-PLANK, the custom dataset is required to include header rows of as follows
 
-<div>
+<p align="center">
   <img width="30%" alt="image" src="https://github.com/user-attachments/assets/97509ecd-8cd8-4f57-92e9-2ae220865b4d" />
-<div>
+</p>
   
 #### Embedding Generation
 To reduce the loading time, we recommand to prepare the protein and ligand embeddings in advance with following command
